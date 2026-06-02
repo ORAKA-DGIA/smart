@@ -77,36 +77,49 @@ def sensor_list(request):
         .annotate(latest=Max('id'))
         .values_list('latest', flat=True)
     )
-    latest_qs  = DeviceSensorReading.objects.filter(id__in=latest_ids)
-    avg_water  = latest_qs.aggregate(v=Avg('water_level'))['v'] or 0
-    avg_soap   = latest_qs.aggregate(v=Avg('soap_level'))['v'] or 0
-    avg_temp   = latest_qs.aggregate(v=Avg('temperature'))['v'] or 0
+    latest_qs = DeviceSensorReading.objects.filter(id__in=latest_ids)
+    agg       = latest_qs.aggregate(
+        w=Avg('water_level'),
+        s=Avg('soap_level'),
+        t=Avg('temperature'),
+    )
+    avg_water = agg['w']
+    avg_soap  = agg['s']
+    avg_temp  = agg['t']
     handwashes = SensorReading.objects.filter(date=date.today()).aggregate(v=Sum('handwashes'))['v'] or 0
     max_washes = 500
 
+    def fmt_level(v):
+        return f"{v:.0f}%" if v is not None else 'N/A'
+
     return Response([
-        {'label': 'Water Level',    'value': f"{avg_water:.0f}%",       'pct': int(avg_water),                                    'color': '#0ea5e9'},
-        {'label': 'Soap Level',     'value': f"{avg_soap:.0f}%",        'pct': int(avg_soap),                                     'color': '#6366f1'},
-        {'label': 'Temperature',    'value': f"{avg_temp:.1f}\u00b0C",  'pct': int(avg_temp / 50 * 100),                          'color': '#f59e0b'},
-        {'label': 'Handwash Count', 'value': str(handwashes),           'pct': min(int(handwashes / max_washes * 100), 100),      'color': '#10b981'},
+        {'label': 'Water Level',    'value': fmt_level(avg_water),                    'pct': int(avg_water or 0),                               'color': '#0ea5e9'},
+        {'label': 'Soap Level',     'value': fmt_level(avg_soap),                     'pct': int(avg_soap  or 0),                               'color': '#6366f1'},
+        {'label': 'Temperature',    'value': f"{avg_temp:.1f}\u00b0C" if avg_temp is not None else 'N/A', 'pct': int((avg_temp or 0) / 50 * 100), 'color': '#f59e0b'},
+        {'label': 'Handwash Count', 'value': str(handwashes),                         'pct': min(int(handwashes / max_washes * 100), 100),      'color': '#10b981'},
     ])
 
 
 @api_view(['GET'])
 def device_list(request):
-    devices = Device.objects.all()[:6]
-    return Response([
-        {
-            'id':      d.id,
-            'name':    d.name,
-            'status':  d.status,
-            'battery': d.battery,
-            'color':   d.color,
+    devices = Device.objects.prefetch_related('readings').all()[:6]
+    result = []
+    for d in devices:
+        r = d.readings.first()
+        result.append({
+            'id':       d.id,
+            'name':     d.name,
+            'status':   d.status,
+            'battery':  d.battery,
+            'color':    d.color,
             'location': d.location,
-            'icon':    d.icon,
-        }
-        for d in devices
-    ])
+            'icon':     d.icon,
+            'latest_reading': {
+                'water_level': r.water_level if r else None,
+                'soap_level':  r.soap_level  if r else None,
+            },
+        })
+    return Response(result)
 
 
 @api_view(['GET'])
