@@ -2,6 +2,7 @@ from datetime import datetime, date, time, timedelta
 from django.db.models import Sum, Q, DateTimeField
 from django.db.models.functions import Cast, Coalesce, TruncDay, TruncHour, TruncMinute, TruncMonth
 from django.utils import timezone
+from django.utils.timezone import localtime
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -39,7 +40,7 @@ def _aggregate(qs, resolution='day'):
               )
               .order_by('period')
         )
-        labels = [r['period'].strftime('%H:%M') for r in rows]
+        labels = [localtime(r['period']).strftime('%H:%M') for r in rows]
     elif resolution == 'hour':
         rows = (
             qs.annotate(period=TruncHour('ts'))
@@ -52,7 +53,7 @@ def _aggregate(qs, resolution='day'):
               )
               .order_by('period')
         )
-        labels = [r['period'].strftime('%H:%M') for r in rows]
+        labels = [localtime(r['period']).strftime('%H:%M') for r in rows]
     elif resolution == 'month':
         rows = (
             qs.annotate(period=TruncMonth('ts'))
@@ -65,7 +66,7 @@ def _aggregate(qs, resolution='day'):
               )
               .order_by('period')
         )
-        labels = [r['period'].strftime('%b') for r in rows]
+        labels = [localtime(r['period']).strftime('%b') for r in rows]
     else:
         rows = (
             qs.annotate(period=TruncDay('ts'))
@@ -78,7 +79,7 @@ def _aggregate(qs, resolution='day'):
               )
               .order_by('period')
         )
-        labels = [r['period'].strftime('%b %d').replace(' 0', ' ') for r in rows]
+        labels = [localtime(r['period']).strftime('%b %d').replace(' 0', ' ') for r in rows]
 
     soap, water, washed, unwashed = [], [], [], []
     for r in rows:
@@ -167,7 +168,7 @@ def analytics_auto(request):
         current_minute += timedelta(minutes=1)
 
     # Build response
-    labels = [m['period'].strftime('%H:%M') for m in minutes_data]
+    labels = [localtime(m['period']).strftime('%H:%M') for m in minutes_data]
     soap_usage = [round(m['soap_usage'], 2) for m in minutes_data]
     water_usage = [round(m['water_usage'], 2) for m in minutes_data]
     handwashes = [m['handwashes'] for m in minutes_data]

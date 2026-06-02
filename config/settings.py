@@ -163,7 +163,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Africa/Nairobi'  # UTC+3 — matches ESP32 configTime(3 * 3600, ...)
 
 USE_I18N = True
 

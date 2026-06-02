@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from django.utils import timezone
+from django.utils.timezone import localtime
 from django.db.models import Avg, Sum
 from django.db.models.functions import TruncHour
 from rest_framework.decorators import api_view
@@ -130,7 +131,7 @@ def alert_list(request):
             'id':       a.id,
             'title':    a.title,
             'device':   a.device,
-            'time':     a.time.strftime('%I:%M %p'),
+            'time':     localtime(a.time).strftime('%I:%M %p'),
             'severity': a.severity,
         }
         for a in alerts
@@ -155,7 +156,7 @@ def activity_waveform(request):
     current_hour = now.hour
     buckets = [0] * (current_hour + 1)
     for data in hourly_data:
-        hour = data['hour'].hour
+        hour = localtime(data['hour']).hour
         if hour <= current_hour:
             buckets[hour] = data['total_handwashes'] or 0
 
