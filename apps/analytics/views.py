@@ -275,7 +275,7 @@ def iot_ingest(request):
                 message  = f'Daily soap usage dropped to {soap} mL — dispenser may be empty.',
                 severity = 'High',
             )
-        if water < 10000:
+        if water < 500:   # fewer than ~4 handwashes worth
             create_alert(
                 title    = 'Low Water Usage Detected',
                 device   = device_name,
