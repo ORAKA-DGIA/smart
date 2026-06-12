@@ -140,50 +140,53 @@ def _build_range_response(from_dt, to_dt, resolution='auto'):
 @permission_classes([])
 def analytics_auto(request):
     now = timezone.now()
-    start = now - timedelta(minutes=3)
+    start = now - timedelta(minutes=30)
     recent_qs = SensorReading.objects.filter(timestamp__range=(start, now))
 
-    # Generate data for each of the last 3 minutes, even if no data
+    # If no data in last 30 min, fall back to today's data
+    if not recent_qs.exists():
+        today = timezone.localdate()
+        response = _build_range_response(today, today, 'day')
+        response['range'] = 'Today'
+        return Response(response)
+
+    # Determine window: use 3-min buckets if data is dense, else 30-min
+    window_start = now - timedelta(minutes=3)
+    dense_qs = recent_qs.filter(timestamp__gte=window_start)
+    if dense_qs.exists():
+        bucket_start = window_start
+        bucket_minutes = 1
+        window_label = 'Last 3 minutes'
+    else:
+        bucket_start = start
+        bucket_minutes = 5
+        window_label = 'Last 30 minutes'
+
     minutes_data = []
-    current_minute = start.replace(second=0, microsecond=0)
+    current_minute = bucket_start.replace(second=0, microsecond=0)
     end_minute = now.replace(second=0, microsecond=0)
 
     while current_minute <= end_minute:
-        min_start = current_minute
-        min_end = current_minute + timedelta(minutes=1)
-        qs_min = recent_qs.filter(timestamp__range=(min_start, min_end))
-
-        soap = qs_min.aggregate(s=Sum('soap_usage'))['s'] or 0
-        water = qs_min.aggregate(w=Sum('water_usage'))['w'] or 0
-        handwashes = qs_min.aggregate(h=Sum('handwashes'))['h'] or 0
-        unwashed = qs_min.aggregate(u=Sum('unwashed'))['u'] or 0
-
+        min_end = current_minute + timedelta(minutes=bucket_minutes)
+        qs_min = recent_qs.filter(timestamp__range=(current_minute, min_end))
         minutes_data.append({
             'period': current_minute,
-            'soap_usage': soap,
-            'water_usage': water,
-            'handwashes': handwashes,
-            'unwashed': unwashed,
+            'soap_usage':  qs_min.aggregate(s=Sum('soap_usage'))['s'] or 0,
+            'water_usage': qs_min.aggregate(w=Sum('water_usage'))['w'] or 0,
+            'handwashes':  qs_min.aggregate(h=Sum('handwashes'))['h'] or 0,
+            'unwashed':    qs_min.aggregate(u=Sum('unwashed'))['u'] or 0,
         })
-        current_minute += timedelta(minutes=1)
+        current_minute += timedelta(minutes=bucket_minutes)
 
-    # Build response
-    labels = [localtime(m['period']).strftime('%H:%M') for m in minutes_data]
-    soap_usage = [round(m['soap_usage'], 2) for m in minutes_data]
-    water_usage = [round(m['water_usage'], 2) for m in minutes_data]
-    handwashes = [m['handwashes'] for m in minutes_data]
-    unwashed = [m['unwashed'] for m in minutes_data]
-
-    response = {
-        'labels': labels,
-        'soapUsage': soap_usage,
-        'waterUsage': water_usage,
-        'handwashes': handwashes,
-        'unwashed': unwashed,
+    return Response({
+        'labels':     [localtime(m['period']).strftime('%H:%M') for m in minutes_data],
+        'soapUsage':  [round(m['soap_usage'], 2) for m in minutes_data],
+        'waterUsage': [round(m['water_usage'], 2) for m in minutes_data],
+        'handwashes': [m['handwashes'] for m in minutes_data],
+        'unwashed':   [m['unwashed'] for m in minutes_data],
         'resolution': 'minute',
-        'range': 'Last 3 minutes',
-    }
-    return Response(response)
+        'range': window_label,
+    })
 
 
 @api_view(['GET'])
@@ -253,7 +256,7 @@ def iot_ingest(request):
         if not date_value:
             return Response({'error': 'date or timestamp required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        obj, created = SensorReading.objects.update_or_create(
+        obj, created = SensorReading.objects.get_or_create(
             date=date_value,
             device=device_name,
             defaults={
@@ -264,6 +267,13 @@ def iot_ingest(request):
                 'unwashed': serializer.validated_data['unwashed'],
             }
         )
+        if not created:
+            obj.timestamp    = timestamp
+            obj.soap_usage  += serializer.validated_data['soap_usage']
+            obj.water_usage += serializer.validated_data['water_usage']
+            obj.handwashes  += serializer.validated_data['handwashes']
+            obj.unwashed    += serializer.validated_data['unwashed']
+            obj.save()
 
         soap = serializer.validated_data['soap_usage']
         water = serializer.validated_data['water_usage']
