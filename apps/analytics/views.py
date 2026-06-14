@@ -109,11 +109,13 @@ def _resolve_resolution(qs, from_dt, to_dt, requested='auto'):
     if requested != 'auto':
         return 'day'
 
-    if qs.filter(timestamp__isnull=False).exists():
-        if (to_dt - from_dt) <= timedelta(hours=1):
-            return 'minute'
-        if (to_dt - from_dt) <= timedelta(days=2):
-            return 'hour'
+    span = to_dt - from_dt
+    has_timestamps = qs.filter(timestamp__isnull=False).exists()
+
+    if has_timestamps and span <= timedelta(hours=1):
+        return 'minute'
+    if has_timestamps and span <= timedelta(hours=6):
+        return 'hour'
     return 'day'
 
 
@@ -123,6 +125,12 @@ def _build_range_response(from_dt, to_dt, resolution='auto'):
     if isinstance(to_dt, date) and not isinstance(to_dt, datetime):
         to_dt = datetime.combine(to_dt, time.max)
 
+    # Make aware so timestamp comparisons work correctly
+    if timezone.is_naive(from_dt):
+        from_dt = timezone.make_aware(from_dt)
+    if timezone.is_naive(to_dt):
+        to_dt = timezone.make_aware(to_dt)
+
     qs = SensorReading.objects.filter(
         Q(timestamp__range=(from_dt, to_dt)) |
         Q(timestamp__isnull=True, date__range=(from_dt.date(), to_dt.date()))
@@ -131,7 +139,7 @@ def _build_range_response(from_dt, to_dt, resolution='auto'):
     bucket = _resolve_resolution(qs, from_dt, to_dt, resolution)
     response = _aggregate(qs, bucket)
     response['resolution'] = bucket
-    response['range'] = f"{from_dt.strftime('%b %d').replace(' 0', ' ')} – {to_dt.strftime('%b %d').replace(' 0', ' ')}"
+    response['range'] = f"{localtime(from_dt).strftime('%b %d').replace(' 0', ' ')} – {localtime(to_dt).strftime('%b %d').replace(' 0', ' ')}"
     return response
 
 
@@ -146,7 +154,7 @@ def analytics_auto(request):
     # If no data in last 30 min, fall back to today's data
     if not recent_qs.exists():
         today = timezone.localdate()
-        response = _build_range_response(today, today, 'day')
+        response = _build_range_response(today, today, 'daily')
         response['range'] = 'Today'
         return Response(response)
 
